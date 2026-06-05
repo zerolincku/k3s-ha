@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  deploy-keepalived-haproxy.sh <配置文件.env>
+  deploy-keepalived-haproxy.sh <config.env>
 
 示例:
   bash keepalived-haproxy/scripts/deploy-keepalived-haproxy.sh keepalived-haproxy/prod.env

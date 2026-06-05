@@ -4,10 +4,10 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  prepare-airgap-bundle.sh <配置文件.env>
+  prepare-airgap-bundle.sh <config.env>
 
 可选环境变量:
-  K3S_VERSION=v1.34.8+k3s1
+  K3S_VERSION=v1.35.5+k3s1
   K3S_ARCH=amd64|arm64|all
   ARTIFACT_DIR=./k3s/artifacts
 USAGE
@@ -37,7 +37,7 @@ K3S_VERSION=${ENV_K3S_VERSION:-${K3S_VERSION:-}}
 
 if [[ -z "$K3S_VERSION" ]]; then
   echo "K3S_VERSION is required for deterministic airgap bundles." >&2
-  echo "Example: K3S_VERSION=v1.34.8+k3s1 $0 $INVENTORY" >&2
+  echo "Example: K3S_VERSION=v1.35.5+k3s1 $0 $INVENTORY" >&2
   exit 1
 fi
 

@@ -17,7 +17,7 @@
 ├── README.md
 ├── k3s/
 │   ├── 说明.md
-│   ├── 配置示例.env
+│   ├── config.example.env
 │   ├── docs/
 │   │   ├── 01-架构说明.md
 │   │   ├── 02-在线部署.md
@@ -26,10 +26,12 @@
 │   │   └── 05-OrbStack验证记录.md
 │   └── scripts/
 │       ├── deploy-k3s-ha.sh
+│       ├── download-k3s-assets.sh
+│       ├── download-k3s-images.sh
 │       └── prepare-airgap-bundle.sh
 ├── keepalived-haproxy/
 │   ├── 说明.md
-│   ├── 配置示例.env
+│   ├── config.example.env
 │   ├── docs/
 │   └── scripts/
 └── <resource>/      # 后续 redis、mysql、rabbitmq、minio 等资源目录
@@ -40,7 +42,7 @@
 ```text
 <resource>/
 ├── 说明.md
-├── 配置示例.env
+├── config.example.env
 ├── docs/
 │   ├── 01-架构说明.md
 │   ├── 02-在线部署.md
@@ -63,8 +65,8 @@
 复制并修改配置文件：
 
 ```bash
-cp keepalived-haproxy/配置示例.env keepalived-haproxy/prod.env
-cp k3s/配置示例.env k3s/prod.env
+cp keepalived-haproxy/config.example.env keepalived-haproxy/prod.env
+cp k3s/config.example.env k3s/prod.env
 vim keepalived-haproxy/prod.env
 vim k3s/prod.env
 ```
@@ -81,7 +83,19 @@ bash k3s/scripts/deploy-k3s-ha.sh k3s/prod.env
 bash keepalived-haproxy/scripts/deploy-keepalived-haproxy.sh keepalived-haproxy/prod.env
 ```
 
-准备离线包：
+下载 K3s 本体离线资源：
+
+```bash
+K3S_ARCH=all bash k3s/scripts/download-k3s-assets.sh k3s/prod.env
+```
+
+下载 K3s 系统镜像归档：
+
+```bash
+K3S_ARCH=all bash k3s/scripts/download-k3s-images.sh k3s/prod.env
+```
+
+准备完整离线包：
 
 ```bash
 bash k3s/scripts/prepare-airgap-bundle.sh k3s/prod.env
@@ -90,7 +104,7 @@ bash k3s/scripts/prepare-airgap-bundle.sh k3s/prod.env
 同时准备 `amd64` 与 `arm64` 离线包：
 
 ```bash
-K3S_VERSION=v1.34.8+k3s1 K3S_ARCH=all \
+K3S_VERSION=v1.35.5+k3s1 K3S_ARCH=all \
 bash k3s/scripts/prepare-airgap-bundle.sh k3s/prod.env
 ```
 

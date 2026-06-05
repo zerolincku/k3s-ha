@@ -4,13 +4,20 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  deploy-k3s-ha.sh <配置文件.env>
+  deploy-k3s-ha.sh <config.env>
 
 在线部署:
   bash k3s/scripts/deploy-k3s-ha.sh k3s/prod.env
 
 离线部署:
   K3S_AIRGAP=true AIRGAP_BUNDLE=/path/to/same-arch-bundle.tar.gz \
+    bash k3s/scripts/deploy-k3s-ha.sh k3s/prod.env
+
+散文件离线部署:
+  K3S_AIRGAP=true \
+  K3S_BINARY_ARM64=/path/to/k3s-arm64 \
+  K3S_INSTALL_SCRIPT=/path/to/install.sh \
+  K3S_IMAGE_TAR_ARM64=/path/to/k3s-airgap-images-arm64.tar.zst \
     bash k3s/scripts/deploy-k3s-ha.sh k3s/prod.env
 
 混合架构离线部署:
@@ -38,6 +45,13 @@ ENV_K3S_AIRGAP=${K3S_AIRGAP:-}
 ENV_AIRGAP_BUNDLE=${AIRGAP_BUNDLE:-}
 ENV_AIRGAP_BUNDLE_AMD64=${AIRGAP_BUNDLE_AMD64:-}
 ENV_AIRGAP_BUNDLE_ARM64=${AIRGAP_BUNDLE_ARM64:-}
+ENV_K3S_BINARY=${K3S_BINARY:-}
+ENV_K3S_BINARY_AMD64=${K3S_BINARY_AMD64:-}
+ENV_K3S_BINARY_ARM64=${K3S_BINARY_ARM64:-}
+ENV_K3S_INSTALL_SCRIPT=${K3S_INSTALL_SCRIPT:-}
+ENV_K3S_IMAGE_TAR=${K3S_IMAGE_TAR:-}
+ENV_K3S_IMAGE_TAR_AMD64=${K3S_IMAGE_TAR_AMD64:-}
+ENV_K3S_IMAGE_TAR_ARM64=${K3S_IMAGE_TAR_ARM64:-}
 ENV_K3S_ARCH=${K3S_ARCH:-}
 ENV_ARTIFACT_DIR=${ARTIFACT_DIR:-}
 ENV_K3S_PRIVATE_REGISTRY_FILE=${K3S_PRIVATE_REGISTRY_FILE:-}
@@ -64,6 +78,13 @@ K3S_AIRGAP=${ENV_K3S_AIRGAP:-${K3S_AIRGAP:-false}}
 AIRGAP_BUNDLE=${ENV_AIRGAP_BUNDLE:-${AIRGAP_BUNDLE:-}}
 AIRGAP_BUNDLE_AMD64=${ENV_AIRGAP_BUNDLE_AMD64:-${AIRGAP_BUNDLE_AMD64:-}}
 AIRGAP_BUNDLE_ARM64=${ENV_AIRGAP_BUNDLE_ARM64:-${AIRGAP_BUNDLE_ARM64:-}}
+K3S_BINARY=${ENV_K3S_BINARY:-${K3S_BINARY:-}}
+K3S_BINARY_AMD64=${ENV_K3S_BINARY_AMD64:-${K3S_BINARY_AMD64:-}}
+K3S_BINARY_ARM64=${ENV_K3S_BINARY_ARM64:-${K3S_BINARY_ARM64:-}}
+K3S_INSTALL_SCRIPT=${ENV_K3S_INSTALL_SCRIPT:-${K3S_INSTALL_SCRIPT:-}}
+K3S_IMAGE_TAR=${ENV_K3S_IMAGE_TAR:-${K3S_IMAGE_TAR:-}}
+K3S_IMAGE_TAR_AMD64=${ENV_K3S_IMAGE_TAR_AMD64:-${K3S_IMAGE_TAR_AMD64:-}}
+K3S_IMAGE_TAR_ARM64=${ENV_K3S_IMAGE_TAR_ARM64:-${K3S_IMAGE_TAR_ARM64:-}}
 K3S_ARCH=${ENV_K3S_ARCH:-${K3S_ARCH:-amd64}}
 K3S_JOIN_ENDPOINT=${K3S_JOIN_ENDPOINT:-}
 KUBECONFIG_SERVER=${KUBECONFIG_SERVER:-}
@@ -215,6 +236,38 @@ airgap_bundle_for_arch() {
   esac
 }
 
+k3s_binary_for_arch() {
+  local arch=$1
+  case "$arch" in
+    amd64)
+      echo "${K3S_BINARY_AMD64:-${K3S_BINARY:-}}"
+      ;;
+    arm64)
+      echo "${K3S_BINARY_ARM64:-${K3S_BINARY:-}}"
+      ;;
+    *)
+      echo "unsupported architecture for K3s binary: $arch" >&2
+      return 1
+      ;;
+  esac
+}
+
+image_tar_for_arch() {
+  local arch=$1
+  case "$arch" in
+    amd64)
+      echo "${K3S_IMAGE_TAR_AMD64:-${K3S_IMAGE_TAR:-}}"
+      ;;
+    arm64)
+      echo "${K3S_IMAGE_TAR_ARM64:-${K3S_IMAGE_TAR:-}}"
+      ;;
+    *)
+      echo "unsupported architecture for image tar: $arch" >&2
+      return 1
+      ;;
+  esac
+}
+
 check_connectivity() {
   for host in "${MASTER_SSH_HOSTS[@]}"; do
     echo "check ssh: $host"
@@ -302,6 +355,58 @@ fi
 IMAGE_TAR=${IMAGE_TAR:-k3s-airgap-images-${K3S_ARCH}.tar.zst}
 cp "/opt/k3s-airgap/${IMAGE_TAR}" "/var/lib/rancher/k3s/agent/images/${IMAGE_TAR}"
 touch /var/lib/rancher/k3s/agent/images/.cache.json
+REMOTE
+}
+
+install_k3s_assets() {
+  local host=$1
+  local arch=$2
+  local binary
+  binary=$(k3s_binary_for_arch "$arch")
+
+  if [[ -z "$binary" || ! -f "$binary" ]]; then
+    echo "K3s binary for $arch not found: $binary" >&2
+    exit 1
+  fi
+  if [[ -z "$K3S_INSTALL_SCRIPT" || ! -f "$K3S_INSTALL_SCRIPT" ]]; then
+    echo "K3S_INSTALL_SCRIPT not found: $K3S_INSTALL_SCRIPT" >&2
+    exit 1
+  fi
+
+  local remote_binary="/tmp/$(basename "$binary")"
+  local remote_install="/tmp/k3s-install.sh"
+  copy_to "$binary" "$host" "$remote_binary"
+  copy_to "$K3S_INSTALL_SCRIPT" "$host" "$remote_install"
+  run_ssh "$host" "REMOTE_BINARY='$remote_binary' REMOTE_INSTALL='$remote_install' bash -s" <<'REMOTE'
+set -euo pipefail
+mkdir -p /opt/k3s-airgap /usr/local/bin
+install -m 0755 "$REMOTE_BINARY" /usr/local/bin/k3s
+install -m 0755 "$REMOTE_INSTALL" /opt/k3s-airgap/install.sh
+rm -f "$REMOTE_BINARY" "$REMOTE_INSTALL"
+REMOTE
+}
+
+install_image_tar() {
+  local host=$1
+  local arch=$2
+  local image_tar
+  image_tar=$(image_tar_for_arch "$arch")
+  if [[ -z "$image_tar" ]]; then
+    return
+  fi
+  if [[ ! -f "$image_tar" ]]; then
+    echo "K3s image tar for $arch not found: $image_tar" >&2
+    exit 1
+  fi
+
+  local remote_image_tar="/tmp/$(basename "$image_tar")"
+  copy_to "$image_tar" "$host" "$remote_image_tar"
+  run_ssh "$host" "REMOTE_IMAGE_TAR='$remote_image_tar' bash -s" <<'REMOTE'
+set -euo pipefail
+mkdir -p /var/lib/rancher/k3s/agent/images
+install -m 0600 "$REMOTE_IMAGE_TAR" "/var/lib/rancher/k3s/agent/images/$(basename "$REMOTE_IMAGE_TAR")"
+touch /var/lib/rancher/k3s/agent/images/.cache.json
+rm -f "$REMOTE_IMAGE_TAR"
 REMOTE
 }
 
@@ -437,8 +542,13 @@ main() {
     configure_sysctl "$host"
     install_private_registry_config "$host"
     if [[ "$K3S_AIRGAP" == "true" ]]; then
-      install_airgap_payload "$host" "${DETECTED_ARCHES[$i]}"
+      if [[ -n "$(airgap_bundle_for_arch "${DETECTED_ARCHES[$i]}")" ]]; then
+        install_airgap_payload "$host" "${DETECTED_ARCHES[$i]}"
+      else
+        install_k3s_assets "$host" "${DETECTED_ARCHES[$i]}"
+      fi
     fi
+    install_image_tar "$host" "${DETECTED_ARCHES[$i]}"
   done
 
   write_k3s_config "${MASTER_SSH_HOSTS[0]}" "${MASTER_NAMES[0]}" "" true "${DETECTED_CGROUPS[0]}"

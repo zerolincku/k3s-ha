@@ -32,6 +32,18 @@ if [[ ! -f "$INVENTORY" ]]; then
   exit 1
 fi
 
+ENV_K3S_VERSION=${K3S_VERSION:-}
+ENV_K3S_CHANNEL=${K3S_CHANNEL:-}
+ENV_K3S_AIRGAP=${K3S_AIRGAP:-}
+ENV_AIRGAP_BUNDLE=${AIRGAP_BUNDLE:-}
+ENV_AIRGAP_BUNDLE_AMD64=${AIRGAP_BUNDLE_AMD64:-}
+ENV_AIRGAP_BUNDLE_ARM64=${AIRGAP_BUNDLE_ARM64:-}
+ENV_K3S_ARCH=${K3S_ARCH:-}
+ENV_ARTIFACT_DIR=${ARTIFACT_DIR:-}
+ENV_K3S_PRIVATE_REGISTRY_FILE=${K3S_PRIVATE_REGISTRY_FILE:-}
+ENV_K3S_SYSTEM_DEFAULT_REGISTRY=${K3S_SYSTEM_DEFAULT_REGISTRY:-}
+ENV_K3S_PAUSE_IMAGE=${K3S_PAUSE_IMAGE:-}
+
 # shellcheck disable=SC1090
 source "$INVENTORY"
 
@@ -39,7 +51,8 @@ SSH_USER=${SSH_USER:-root}
 SSH_PORT=${SSH_PORT:-22}
 SSH_OPTS=${SSH_OPTS:-"-o StrictHostKeyChecking=accept-new"}
 K3S_API_PORT=${K3S_API_PORT:-6443}
-K3S_CHANNEL=${K3S_CHANNEL:-stable}
+K3S_VERSION=${ENV_K3S_VERSION:-${K3S_VERSION:-}}
+K3S_CHANNEL=${ENV_K3S_CHANNEL:-${K3S_CHANNEL:-stable}}
 K3S_TOKEN=${K3S_TOKEN:-}
 K3S_CLUSTER_CIDR=${K3S_CLUSTER_CIDR:-10.42.0.0/16}
 K3S_SERVICE_CIDR=${K3S_SERVICE_CIDR:-10.43.0.0/16}
@@ -47,18 +60,22 @@ K3S_CLUSTER_DNS=${K3S_CLUSTER_DNS:-10.43.0.10}
 CGROUP_MODE=${CGROUP_MODE:-auto}
 K3S_CGROUP_DRIVER=${K3S_CGROUP_DRIVER:-auto}
 K3S_DISABLE_COMPONENTS=${K3S_DISABLE_COMPONENTS:-traefik}
-K3S_AIRGAP=${K3S_AIRGAP:-false}
-AIRGAP_BUNDLE=${AIRGAP_BUNDLE:-}
-AIRGAP_BUNDLE_AMD64=${AIRGAP_BUNDLE_AMD64:-}
-AIRGAP_BUNDLE_ARM64=${AIRGAP_BUNDLE_ARM64:-}
-K3S_ARCH=${K3S_ARCH:-amd64}
+K3S_AIRGAP=${ENV_K3S_AIRGAP:-${K3S_AIRGAP:-false}}
+AIRGAP_BUNDLE=${ENV_AIRGAP_BUNDLE:-${AIRGAP_BUNDLE:-}}
+AIRGAP_BUNDLE_AMD64=${ENV_AIRGAP_BUNDLE_AMD64:-${AIRGAP_BUNDLE_AMD64:-}}
+AIRGAP_BUNDLE_ARM64=${ENV_AIRGAP_BUNDLE_ARM64:-${AIRGAP_BUNDLE_ARM64:-}}
+K3S_ARCH=${ENV_K3S_ARCH:-${K3S_ARCH:-amd64}}
 K3S_JOIN_ENDPOINT=${K3S_JOIN_ENDPOINT:-}
 KUBECONFIG_SERVER=${KUBECONFIG_SERVER:-}
 TLS_SAN_VALUES=${TLS_SAN_VALUES:-}
-ARTIFACT_DIR=${ARTIFACT_DIR:-./k3s/artifacts}
+ARTIFACT_DIR=${ENV_ARTIFACT_DIR:-${ARTIFACT_DIR:-./k3s/artifacts}}
+K3S_PRIVATE_REGISTRY_FILE=${ENV_K3S_PRIVATE_REGISTRY_FILE:-${K3S_PRIVATE_REGISTRY_FILE:-}}
+K3S_SYSTEM_DEFAULT_REGISTRY=${ENV_K3S_SYSTEM_DEFAULT_REGISTRY:-${K3S_SYSTEM_DEFAULT_REGISTRY:-}}
+K3S_PAUSE_IMAGE=${ENV_K3S_PAUSE_IMAGE:-${K3S_PAUSE_IMAGE:-}}
 
 MASTER_NAMES=("${MASTER1_NAME:?}" "${MASTER2_NAME:?}" "${MASTER3_NAME:?}")
 MASTER_HOSTS=("${MASTER1_HOST:?}" "${MASTER2_HOST:?}" "${MASTER3_HOST:?}")
+MASTER_SSH_HOSTS=("${MASTER1_SSH_HOST:-${MASTER1_HOST:?}}" "${MASTER2_SSH_HOST:-${MASTER2_HOST:?}}" "${MASTER3_SSH_HOST:-${MASTER3_HOST:?}}")
 MASTER_ARCHES=("${MASTER1_ARCH:-auto}" "${MASTER2_ARCH:-auto}" "${MASTER3_ARCH:-auto}")
 DETECTED_ARCHES=()
 DETECTED_CGROUPS=()
@@ -85,6 +102,11 @@ require_cmd sed
 require_cmd mkdir
 
 mkdir -p "$ARTIFACT_DIR"
+
+if [[ -n "$K3S_PRIVATE_REGISTRY_FILE" && ! -f "$K3S_PRIVATE_REGISTRY_FILE" ]]; then
+  echo "K3S_PRIVATE_REGISTRY_FILE not found: $K3S_PRIVATE_REGISTRY_FILE" >&2
+  exit 1
+fi
 
 ssh_target() {
   local host=$1
@@ -157,8 +179,8 @@ preflight_host_profiles() {
       ;;
   esac
 
-  for i in "${!MASTER_HOSTS[@]}"; do
-    host=${MASTER_HOSTS[$i]}
+  for i in "${!MASTER_SSH_HOSTS[@]}"; do
+    host=${MASTER_SSH_HOSTS[$i]}
     local profile
     profile=$(detect_host_profile "$host")
     read -r detected_arch detected_cgroup <<<"$profile"
@@ -194,7 +216,7 @@ airgap_bundle_for_arch() {
 }
 
 check_connectivity() {
-  for host in "${MASTER_HOSTS[@]}"; do
+  for host in "${MASTER_SSH_HOSTS[@]}"; do
     echo "check ssh: $host"
     run_ssh "$host" "echo ok >/dev/null"
   done
@@ -235,6 +257,22 @@ EOF
 modprobe br_netfilter || true
 sysctl --system >/dev/null
 swapoff -a || true
+REMOTE
+}
+
+install_private_registry_config() {
+  local host=$1
+  if [[ -z "$K3S_PRIVATE_REGISTRY_FILE" ]]; then
+    return
+  fi
+
+  local remote_file="/tmp/k3s-registries.yaml"
+  copy_to "$K3S_PRIVATE_REGISTRY_FILE" "$host" "$remote_file"
+  run_ssh "$host" "REMOTE_FILE='$remote_file' bash -s" <<'REMOTE'
+set -euo pipefail
+mkdir -p /etc/rancher/k3s
+install -m 0600 "$REMOTE_FILE" /etc/rancher/k3s/registries.yaml
+rm -f "$REMOTE_FILE"
 REMOTE
 }
 
@@ -304,6 +342,17 @@ write_k3s_config() {
     kubelet_arg_block+="  - \"cgroup-driver=${K3S_CGROUP_DRIVER}\""$'\n'
   fi
 
+  local registry_block=""
+  if [[ -n "$K3S_PRIVATE_REGISTRY_FILE" ]]; then
+    registry_block+=$'private-registry: "/etc/rancher/k3s/registries.yaml"\n'
+  fi
+  if [[ -n "$K3S_SYSTEM_DEFAULT_REGISTRY" ]]; then
+    registry_block+="system-default-registry: \"${K3S_SYSTEM_DEFAULT_REGISTRY}\""$'\n'
+  fi
+  if [[ -n "$K3S_PAUSE_IMAGE" ]]; then
+    registry_block+="pause-image: \"${K3S_PAUSE_IMAGE}\""$'\n'
+  fi
+
   run_ssh "$host" "NODE_NAME='$node_name' K3S_TOKEN='$K3S_TOKEN' SERVER_URL='$server_url' CLUSTER_INIT='$cluster_init' K3S_CLUSTER_CIDR='$K3S_CLUSTER_CIDR' K3S_SERVICE_CIDR='$K3S_SERVICE_CIDR' K3S_CLUSTER_DNS='$K3S_CLUSTER_DNS' bash -s" <<REMOTE
 set -euo pipefail
 mkdir -p /etc/rancher/k3s
@@ -316,6 +365,7 @@ cluster-cidr: "\${K3S_CLUSTER_CIDR}"
 service-cidr: "\${K3S_SERVICE_CIDR}"
 cluster-dns: "\${K3S_CLUSTER_DNS}"
 ${disable_block}
+${registry_block}
 kubelet-arg:
 ${kubelet_arg_block}
 EOF
@@ -361,7 +411,7 @@ wait_for_node() {
 }
 
 fetch_kubeconfig() {
-  local first_host=${MASTER_HOSTS[0]}
+  local first_host=${MASTER_SSH_HOSTS[0]}
   local kubeconfig="$ARTIFACT_DIR/kubeconfig.yaml"
   scp -P "$SSH_PORT" $SSH_OPTS "$(ssh_target "$first_host"):/etc/rancher/k3s/k3s.yaml" "$kubeconfig"
   sed -i.bak "s#https://127.0.0.1:6443#${KUBECONFIG_SERVER}#g" "$kubeconfig"
@@ -377,33 +427,34 @@ main() {
   check_connectivity
   preflight_host_profiles
 
-  for host in "${MASTER_HOSTS[@]}"; do
+  for host in "${MASTER_SSH_HOSTS[@]}"; do
     local i
-    for i in "${!MASTER_HOSTS[@]}"; do
-      [[ "${MASTER_HOSTS[$i]}" == "$host" ]] && break
+    for i in "${!MASTER_SSH_HOSTS[@]}"; do
+      [[ "${MASTER_SSH_HOSTS[$i]}" == "$host" ]] && break
     done
     echo "prepare host: $host"
     install_os_packages "$host"
     configure_sysctl "$host"
+    install_private_registry_config "$host"
     if [[ "$K3S_AIRGAP" == "true" ]]; then
       install_airgap_payload "$host" "${DETECTED_ARCHES[$i]}"
     fi
   done
 
-  write_k3s_config "${MASTER_HOSTS[0]}" "${MASTER_NAMES[0]}" "" true "${DETECTED_CGROUPS[0]}"
-  install_k3s "${MASTER_HOSTS[0]}"
-  wait_for_node "${MASTER_HOSTS[0]}" "${MASTER_NAMES[0]}"
+  write_k3s_config "${MASTER_SSH_HOSTS[0]}" "${MASTER_NAMES[0]}" "" true "${DETECTED_CGROUPS[0]}"
+  install_k3s "${MASTER_SSH_HOSTS[0]}"
+  wait_for_node "${MASTER_SSH_HOSTS[0]}" "${MASTER_NAMES[0]}"
 
-  write_k3s_config "${MASTER_HOSTS[1]}" "${MASTER_NAMES[1]}" "$server_url" false "${DETECTED_CGROUPS[1]}"
-  install_k3s "${MASTER_HOSTS[1]}"
-  wait_for_node "${MASTER_HOSTS[0]}" "${MASTER_NAMES[1]}"
+  write_k3s_config "${MASTER_SSH_HOSTS[1]}" "${MASTER_NAMES[1]}" "$server_url" false "${DETECTED_CGROUPS[1]}"
+  install_k3s "${MASTER_SSH_HOSTS[1]}"
+  wait_for_node "${MASTER_SSH_HOSTS[0]}" "${MASTER_NAMES[1]}"
 
-  write_k3s_config "${MASTER_HOSTS[2]}" "${MASTER_NAMES[2]}" "$server_url" false "${DETECTED_CGROUPS[2]}"
-  install_k3s "${MASTER_HOSTS[2]}"
-  wait_for_node "${MASTER_HOSTS[0]}" "${MASTER_NAMES[2]}"
+  write_k3s_config "${MASTER_SSH_HOSTS[2]}" "${MASTER_NAMES[2]}" "$server_url" false "${DETECTED_CGROUPS[2]}"
+  install_k3s "${MASTER_SSH_HOSTS[2]}"
+  wait_for_node "${MASTER_SSH_HOSTS[0]}" "${MASTER_NAMES[2]}"
 
   fetch_kubeconfig
-  run_ssh "${MASTER_HOSTS[0]}" "k3s kubectl get nodes -o wide"
+  run_ssh "${MASTER_SSH_HOSTS[0]}" "k3s kubectl get nodes -o wide"
   echo "done"
 }
 

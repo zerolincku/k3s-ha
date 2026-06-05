@@ -22,7 +22,8 @@
 │   │   ├── 01-架构说明.md
 │   │   ├── 02-在线部署.md
 │   │   ├── 03-离线部署.md
-│   │   └── 04-运维手册.md
+│   │   ├── 04-运维手册.md
+│   │   └── 05-OrbStack验证记录.md
 │   └── scripts/
 │       ├── deploy-k3s-ha.sh
 │       └── prepare-airgap-bundle.sh
@@ -55,6 +56,7 @@
 - 在线一键部署：[k3s/docs/02-在线部署.md](k3s/docs/02-在线部署.md)
 - 离线部署方案：[k3s/docs/03-离线部署.md](k3s/docs/03-离线部署.md)
 - 运维检查与故障处理：[k3s/docs/04-运维手册.md](k3s/docs/04-运维手册.md)
+- OrbStack 三节点验证记录：[k3s/docs/05-OrbStack验证记录.md](k3s/docs/05-OrbStack验证记录.md)
 
 ## 快速开始
 

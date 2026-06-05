@@ -24,12 +24,16 @@ if [[ ! -f "$INVENTORY" ]]; then
   exit 1
 fi
 
+ENV_K3S_VERSION=${K3S_VERSION:-}
+ENV_K3S_ARCH=${K3S_ARCH:-}
+ENV_ARTIFACT_DIR=${ARTIFACT_DIR:-}
+
 # shellcheck disable=SC1090
 source "$INVENTORY"
 
-K3S_ARCH=${K3S_ARCH:-amd64}
-ARTIFACT_DIR=${ARTIFACT_DIR:-./k3s/artifacts}
-K3S_VERSION=${K3S_VERSION:-}
+K3S_ARCH=${ENV_K3S_ARCH:-${K3S_ARCH:-amd64}}
+ARTIFACT_DIR=${ENV_ARTIFACT_DIR:-${ARTIFACT_DIR:-./k3s/artifacts}}
+K3S_VERSION=${ENV_K3S_VERSION:-${K3S_VERSION:-}}
 
 if [[ -z "$K3S_VERSION" ]]; then
   echo "K3S_VERSION is required for deterministic airgap bundles." >&2

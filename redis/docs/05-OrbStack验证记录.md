@@ -56,7 +56,7 @@ readyz check passed
 
 ## Redis 镜像离线准备
 
-按离线部署手册准备 Redis 镜像：
+第一轮验证按手工方式准备 Redis 镜像：
 
 ```bash
 docker pull redis:7.2.4
@@ -80,6 +80,30 @@ k3s ctr images import /tmp/redis-7.2.4.tar
 ```text
 docker.io/library/redis:7.2.4    linux/arm64
 ```
+
+第二轮验证改为使用脚本上传到 K3s 自动导入目录：
+
+```bash
+bash redis/scripts/download-redis-images.sh /tmp/k3s-ha-ubuntu-redis-test/redis-image.env
+
+REDIS_RESET_K3S_IMAGE_CACHE=true \
+REDIS_RESTART_K3S_AFTER_IMAGE_UPLOAD=true \
+bash redis/scripts/upload-redis-images.sh /tmp/k3s-ha-ubuntu-redis-test/redis-image.env
+```
+
+脚本上传到每台节点：
+
+```text
+/var/lib/rancher/k3s/agent/images/redis-7.2.4.tar
+```
+
+随后逐台滚动重启 K3s，触发 images 目录自动导入。三台节点均确认导入：
+
+```text
+docker.io/library/redis:7.2.4    linux/arm64
+```
+
+实测结论：在已经运行的 K3s 节点上，镜像 tar 放入 `/var/lib/rancher/k3s/agent/images/` 后，需要重启对应节点的 `k3s` 服务才会立即触发导入。本轮通过上传脚本逐台重启验证，三台节点均恢复 Ready。
 
 ## Redis Sentinel 部署验证
 
@@ -131,6 +155,33 @@ redis-0.redis-headless.redis.svc.cluster.local
 ```text
 SET k3s-ha-check ok
 GET k3s-ha-check
+ok
+```
+
+第二轮清空 Redis namespace、清理旧镜像后，使用 images 目录自动导入方式重新部署，结果仍然通过：
+
+```text
+redis-0      1/1   Running
+redis-1      1/1   Running
+redis-2      1/1   Running
+sentinel-0   1/1   Running
+sentinel-1   1/1   Running
+sentinel-2   1/1   Running
+```
+
+角色：
+
+```text
+redis-0   master
+redis-1   slave
+redis-2   slave
+```
+
+读写验证：
+
+```text
+SET images-dir-import ok
+GET images-dir-import
 ok
 ```
 

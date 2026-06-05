@@ -230,3 +230,121 @@ socat
 K3s 核心验证仍然通过，但生产环境不能省略这些 OS 依赖。完全离线方案需要同时准备 K3s 本体、K3s 系统镜像和 OS 依赖包。
 
 后续脚本已调整为：缺少这些 OS 命令时默认阻断部署。只有显式设置 `IGNORE_OS_PREREQ_MISSING=true` 时，才允许在受控测试环境中继续。
+
+## Rocky Linux 8 离线部署验证
+
+验证日期：2026-06-05
+
+用户创建了 3 台 OrbStack Rocky VM：
+
+| 节点 | 发行版 | 架构 | cgroup | 节点 IP | SSH 地址 |
+| --- | --- | --- | --- | --- | --- |
+| rocky-1 | Rocky Linux 8.10 | arm64 | v2 | 192.168.139.244 | rocky-1@orb |
+| rocky-2 | Rocky Linux 8.10 | arm64 | v2 | 192.168.139.177 | rocky-2@orb |
+| rocky-3 | Rocky Linux 8.10 | arm64 | v2 | 192.168.139.236 | rocky-3@orb |
+
+检查结果：
+
+```text
+stat -fc %T /sys/fs/cgroup
+cgroup2fs
+```
+
+结论：OrbStack 内的 Rocky Linux 8.10 仍然是 cgroup v2，不是 cgroup v1。不能把 OrbStack Rocky 8 当作 cgroup v1 验证环境。
+
+Rocky 8 最小 rootfs 初始缺少以下 OS 命令：
+
+```text
+iptables
+iptables-save
+ip6tables
+ip6tables-save
+conntrack
+socat
+```
+
+按脚本策略，缺少这些命令时离线部署会被阻断。验证前先通过 Rocky 软件源补齐 OS 依赖：
+
+```bash
+dnf install -y iptables socat conntrack-tools ca-certificates curl iproute
+```
+
+然后在本机通过代理下载 `v1.35.5+k3s1` 的 arm64 离线资源：
+
+```bash
+export https_proxy=http://127.0.0.1:7890
+export http_proxy=http://127.0.0.1:7890
+export all_proxy=socks5://127.0.0.1:7890
+
+K3S_VERSION=v1.35.5+k3s1 \
+K3S_ARCH=arm64 \
+ARTIFACT_DIR=/tmp/k3s-ha-rocky-offline-test \
+bash k3s/scripts/download-k3s-assets.sh /tmp/k3s-ha-rocky-offline-test/rocky-download.env
+
+K3S_VERSION=v1.35.5+k3s1 \
+K3S_ARCH=arm64 \
+ARTIFACT_DIR=/tmp/k3s-ha-rocky-offline-test \
+bash k3s/scripts/download-k3s-images.sh /tmp/k3s-ha-rocky-offline-test/rocky-download.env
+```
+
+离线资源大小：
+
+```text
+k3s-arm64                              67M
+install.sh                             37K
+k3s-airgap-images-arm64.tar.zst       213M
+```
+
+部署时使用运维机本地离线资源，由脚本复制到每台 Rocky 节点：
+
+```bash
+K3S_AIRGAP=true
+K3S_BINARY_ARM64=/tmp/k3s-ha-rocky-offline-test/assets/v1.35.5+k3s1/arm64/k3s-arm64
+K3S_INSTALL_SCRIPT=/tmp/k3s-ha-rocky-offline-test/assets/v1.35.5+k3s1/arm64/install.sh
+K3S_IMAGE_TAR_ARM64=/tmp/k3s-ha-rocky-offline-test/images/v1.35.5+k3s1/arm64/k3s-airgap-images-arm64.tar.zst
+```
+
+部署日志确认跳过 K3s 在线下载：
+
+```text
+Skipping k3s download and verify
+Skipping installation of SELinux RPM
+```
+
+最终结果：
+
+```text
+NAME      STATUS   ROLES                VERSION        ARCH    CGROUP-VERSION
+rocky-1   Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+rocky-2   Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+rocky-3   Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+```
+
+系统组件：
+
+```text
+coredns                  1/1   Running
+local-path-provisioner   1/1   Running
+metrics-server           1/1   Running
+```
+
+API 健康检查：
+
+```text
+[+]etcd ok
+[+]etcd-readiness ok
+readyz check passed
+```
+
+每台节点均存在离线镜像归档：
+
+```text
+/var/lib/rancher/k3s/agent/images/k3s-airgap-images-arm64.tar.zst
+```
+
+本轮结论：
+
+- Rocky Linux 8.10 三 master embedded etcd 离线部署验证通过。
+- OrbStack Rocky 8 是 cgroup v2，不能覆盖 cgroup v1 测试。
+- 最小 Rocky rootfs 需要先补齐 OS 依赖；K3s 官方离线资源不包含这些 OS 包。
+- 在 Rocky 8 上，K3s 安装脚本会打印 `Skipping installation of SELinux RPM`，本轮 OrbStack 环境未因 SELinux RPM 阻塞安装。

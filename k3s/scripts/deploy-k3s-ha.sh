@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage:
+用法:
   deploy-k3s-ha.sh <config.env>
 
 在线部署:
@@ -28,7 +28,12 @@ Usage:
 USAGE
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -ne 1 ]]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -ne 1 ]]; then
   usage
   exit 1
 fi
@@ -98,9 +103,21 @@ K3S_SYSTEM_DEFAULT_REGISTRY=${ENV_K3S_SYSTEM_DEFAULT_REGISTRY:-${K3S_SYSTEM_DEFA
 K3S_PAUSE_IMAGE=${ENV_K3S_PAUSE_IMAGE:-${K3S_PAUSE_IMAGE:-}}
 IGNORE_OS_PREREQ_MISSING=${ENV_IGNORE_OS_PREREQ_MISSING:-${IGNORE_OS_PREREQ_MISSING:-false}}
 
-MASTER_NAMES=("${MASTER1_NAME:?}" "${MASTER2_NAME:?}" "${MASTER3_NAME:?}")
-MASTER_HOSTS=("${MASTER1_HOST:?}" "${MASTER2_HOST:?}" "${MASTER3_HOST:?}")
-MASTER_SSH_HOSTS=("${MASTER1_SSH_HOST:-${MASTER1_HOST:?}}" "${MASTER2_SSH_HOST:-${MASTER2_HOST:?}}" "${MASTER3_SSH_HOST:-${MASTER3_HOST:?}}")
+require_var() {
+  local name=$1
+  if [[ -z "${!name:-}" ]]; then
+    echo "缺少必填配置: $name" >&2
+    exit 1
+  fi
+}
+
+for name in MASTER1_NAME MASTER1_HOST MASTER2_NAME MASTER2_HOST MASTER3_NAME MASTER3_HOST; do
+  require_var "$name"
+done
+
+MASTER_NAMES=("${MASTER1_NAME}" "${MASTER2_NAME}" "${MASTER3_NAME}")
+MASTER_HOSTS=("${MASTER1_HOST}" "${MASTER2_HOST}" "${MASTER3_HOST}")
+MASTER_SSH_HOSTS=("${MASTER1_SSH_HOST:-${MASTER1_HOST}}" "${MASTER2_SSH_HOST:-${MASTER2_HOST}}" "${MASTER3_SSH_HOST:-${MASTER3_HOST}}")
 MASTER_ARCHES=("${MASTER1_ARCH:-auto}" "${MASTER2_ARCH:-auto}" "${MASTER3_ARCH:-auto}")
 DETECTED_ARCHES=()
 DETECTED_CGROUPS=()
@@ -109,14 +126,14 @@ K3S_JOIN_ENDPOINT=${K3S_JOIN_ENDPOINT:-https://${MASTER1_HOST}:${K3S_API_PORT}}
 KUBECONFIG_SERVER=${KUBECONFIG_SERVER:-$K3S_JOIN_ENDPOINT}
 
 if [[ "$K3S_TOKEN" == "change-me-use-openssl-rand-hex-32" || -z "$K3S_TOKEN" ]]; then
-  echo "K3S_TOKEN must be changed before deployment." >&2
-  echo "Example: openssl rand -hex 32" >&2
+  echo "部署前必须修改 K3S_TOKEN。" >&2
+  echo "示例: openssl rand -hex 32" >&2
   exit 1
 fi
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
-    echo "required command not found: $1" >&2
+    echo "缺少本地命令: $1" >&2
     exit 1
   }
 }
@@ -129,7 +146,7 @@ require_cmd mkdir
 mkdir -p "$ARTIFACT_DIR"
 
 if [[ -n "$K3S_PRIVATE_REGISTRY_FILE" && ! -f "$K3S_PRIVATE_REGISTRY_FILE" ]]; then
-  echo "K3S_PRIVATE_REGISTRY_FILE not found: $K3S_PRIVATE_REGISTRY_FILE" >&2
+  echo "找不到 K3S_PRIVATE_REGISTRY_FILE: $K3S_PRIVATE_REGISTRY_FILE" >&2
   exit 1
 fi
 
@@ -163,7 +180,7 @@ normalize_arch() {
       echo arm64
       ;;
     *)
-      echo "unsupported architecture: $1" >&2
+      echo "不支持的架构: $1" >&2
       return 1
       ;;
   esac
@@ -176,7 +193,7 @@ set -euo pipefail
 case "$(uname -m)" in
   x86_64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
-  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+  *) echo "不支持的架构: $(uname -m)" >&2; exit 1 ;;
 esac
 if [[ "$(stat -fc %T /sys/fs/cgroup)" == "cgroup2fs" ]]; then
   cgroup=v2
@@ -192,14 +209,14 @@ preflight_host_profiles() {
   case "$CGROUP_MODE" in
     auto|v1|v2) ;;
     *)
-      echo "unsupported CGROUP_MODE: $CGROUP_MODE" >&2
+      echo "不支持的 CGROUP_MODE: $CGROUP_MODE" >&2
       exit 1
       ;;
   esac
   case "$K3S_CGROUP_DRIVER" in
     auto|systemd|cgroupfs) ;;
     *)
-      echo "unsupported K3S_CGROUP_DRIVER: $K3S_CGROUP_DRIVER" >&2
+      echo "不支持的 K3S_CGROUP_DRIVER: $K3S_CGROUP_DRIVER" >&2
       exit 1
       ;;
   esac
@@ -211,16 +228,16 @@ preflight_host_profiles() {
     read -r detected_arch detected_cgroup <<<"$profile"
     expected_arch=$(normalize_arch "${MASTER_ARCHES[$i]}")
     if [[ "$expected_arch" != "auto" && "$expected_arch" != "$detected_arch" ]]; then
-      echo "arch mismatch on $host: expected $expected_arch, detected $detected_arch" >&2
+      echo "节点架构不匹配: $host，期望 $expected_arch，实际 $detected_arch" >&2
       exit 1
     fi
     if [[ "$CGROUP_MODE" != "auto" && "$CGROUP_MODE" != "$detected_cgroup" ]]; then
-      echo "cgroup mismatch on $host: expected $CGROUP_MODE, detected $detected_cgroup" >&2
+      echo "节点 cgroup 不匹配: $host，期望 $CGROUP_MODE，实际 $detected_cgroup" >&2
       exit 1
     fi
     DETECTED_ARCHES[$i]=$detected_arch
     DETECTED_CGROUPS[$i]=$detected_cgroup
-    echo "host profile: ${MASTER_NAMES[$i]} $host arch=$detected_arch cgroup=$detected_cgroup"
+    echo "主机信息: ${MASTER_NAMES[$i]} $host 架构=$detected_arch cgroup=$detected_cgroup"
   done
 }
 
@@ -234,7 +251,7 @@ airgap_bundle_for_arch() {
       echo "${AIRGAP_BUNDLE_ARM64:-${AIRGAP_BUNDLE:-}}"
       ;;
     *)
-      echo "unsupported architecture for airgap bundle: $arch" >&2
+      echo "不支持此架构的离线包: $arch" >&2
       return 1
       ;;
   esac
@@ -250,7 +267,7 @@ k3s_binary_for_arch() {
       echo "${K3S_BINARY_ARM64:-${K3S_BINARY:-}}"
       ;;
     *)
-      echo "unsupported architecture for K3s binary: $arch" >&2
+      echo "不支持此架构的 K3s 可执行文件: $arch" >&2
       return 1
       ;;
   esac
@@ -266,7 +283,7 @@ image_tar_for_arch() {
       echo "${K3S_IMAGE_TAR_ARM64:-${K3S_IMAGE_TAR:-}}"
       ;;
     *)
-      echo "unsupported architecture for image tar: $arch" >&2
+      echo "不支持此架构的镜像归档: $arch" >&2
       return 1
       ;;
   esac
@@ -274,7 +291,7 @@ image_tar_for_arch() {
 
 check_connectivity() {
   for host in "${MASTER_SSH_HOSTS[@]}"; do
-    echo "check ssh: $host"
+    echo "检查 SSH: $host"
     run_ssh "$host" "echo ok >/dev/null"
   done
 }
@@ -296,7 +313,7 @@ elif command -v dnf >/dev/null 2>&1; then
 elif command -v yum >/dev/null 2>&1; then
   yum install -y curl ca-certificates iproute iptables socat conntrack-tools
 else
-  echo "unsupported package manager; install curl and k3s prerequisites manually" >&2
+  echo "不支持的包管理器，请手动安装 curl 和 K3s 前置依赖" >&2
   exit 1
 fi
 REMOTE
@@ -329,11 +346,11 @@ for cmd in iptables iptables-save ip6tables ip6tables-save conntrack socat; do
 done
 if [[ -n "$missing" ]]; then
   if [[ "$IGNORE_OS_PREREQ_MISSING" == "true" ]]; then
-    echo "warning: missing OS commands on $(hostname): ${missing}" >&2
-    echo "warning: IGNORE_OS_PREREQ_MISSING=true, continuing with known risk." >&2
+    echo "警告: 缺少 OS 命令: $(hostname): ${missing}" >&2
+    echo "警告: 已设置 IGNORE_OS_PREREQ_MISSING=true，将带风险继续。" >&2
   else
-    echo "missing OS commands on $(hostname): ${missing}" >&2
-    echo "install matching OS packages offline before deployment, or set IGNORE_OS_PREREQ_MISSING=true to continue explicitly." >&2
+    echo "缺少 OS 命令: $(hostname): ${missing}" >&2
+    echo "请先离线安装匹配的 OS 依赖包；如确认要带风险继续，请显式设置 IGNORE_OS_PREREQ_MISSING=true。" >&2
     exit 1
   fi
 fi
@@ -362,7 +379,7 @@ install_airgap_payload() {
   local bundle
   bundle=$(airgap_bundle_for_arch "$arch")
   if [[ -z "$bundle" || ! -f "$bundle" ]]; then
-    echo "airgap bundle for $arch not found: $bundle" >&2
+    echo "找不到离线包，架构: $arch，路径: $bundle" >&2
     exit 1
   fi
 
@@ -397,11 +414,11 @@ install_k3s_assets() {
     remote_install=$K3S_INSTALL_SCRIPT
   else
     if [[ -z "$binary" || ! -f "$binary" ]]; then
-      echo "K3s binary for $arch not found: $binary" >&2
+      echo "找不到 K3s 可执行文件，架构: $arch，路径: $binary" >&2
       exit 1
     fi
     if [[ -z "$K3S_INSTALL_SCRIPT" || ! -f "$K3S_INSTALL_SCRIPT" ]]; then
-      echo "K3S_INSTALL_SCRIPT not found: $K3S_INSTALL_SCRIPT" >&2
+      echo "找不到 K3S_INSTALL_SCRIPT: $K3S_INSTALL_SCRIPT" >&2
       exit 1
     fi
     remote_binary="/tmp/$(basename "$binary")"
@@ -437,7 +454,7 @@ install_image_tar() {
     remote_image_tar=$image_tar
   else
     if [[ ! -f "$image_tar" ]]; then
-      echo "K3s image tar for $arch not found: $image_tar" >&2
+      echo "找不到 K3s 镜像归档，架构: $arch，路径: $image_tar" >&2
       exit 1
     fi
     remote_image_tar="/tmp/$(basename "$image_tar")"
@@ -551,14 +568,14 @@ install_k3s() {
 wait_for_node() {
   local host=$1
   local node=$2
-  echo "wait node ready: $node"
+  echo "等待节点注册: $node"
   for _ in {1..60}; do
     if run_ssh "$host" "k3s kubectl get node '$node' >/dev/null 2>&1"; then
       return 0
     fi
     sleep 5
   done
-  echo "node not visible after timeout: $node" >&2
+  echo "等待节点超时，节点未出现: $node" >&2
   return 1
 }
 
@@ -569,7 +586,7 @@ fetch_kubeconfig() {
   sed -i.bak "s#https://127.0.0.1:6443#${KUBECONFIG_SERVER}#g" "$kubeconfig"
   rm -f "$kubeconfig.bak"
   chmod 0600 "$kubeconfig"
-  echo "kubeconfig: $kubeconfig"
+  echo "kubeconfig 文件: $kubeconfig"
 }
 
 main() {
@@ -584,7 +601,7 @@ main() {
     for i in "${!MASTER_SSH_HOSTS[@]}"; do
       [[ "${MASTER_SSH_HOSTS[$i]}" == "$host" ]] && break
     done
-    echo "prepare host: $host"
+    echo "准备主机: $host"
     install_os_packages "$host"
     configure_sysctl "$host"
     check_os_prerequisites "$host"
@@ -613,7 +630,7 @@ main() {
 
   fetch_kubeconfig
   run_ssh "${MASTER_SSH_HOSTS[0]}" "k3s kubectl get nodes -o wide"
-  echo "done"
+  echo "完成"
 }
 
 main "$@"

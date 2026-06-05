@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage:
+用法:
   prepare-airgap-bundle.sh <config.env>
 
 可选环境变量:
@@ -13,7 +13,12 @@ Usage:
 USAGE
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -ne 1 ]]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -ne 1 ]]; then
   usage
   exit 1
 fi
@@ -36,14 +41,14 @@ ARTIFACT_DIR=${ENV_ARTIFACT_DIR:-${ARTIFACT_DIR:-./k3s/artifacts}}
 K3S_VERSION=${ENV_K3S_VERSION:-${K3S_VERSION:-}}
 
 if [[ -z "$K3S_VERSION" ]]; then
-  echo "K3S_VERSION is required for deterministic airgap bundles." >&2
-  echo "Example: K3S_VERSION=v1.35.5+k3s1 $0 $INVENTORY" >&2
+  echo "必须设置 K3S_VERSION，离线包需要固定版本。" >&2
+  echo "示例: K3S_VERSION=v1.35.5+k3s1 $0 $INVENTORY" >&2
   exit 1
 fi
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
-    echo "required command not found: $1" >&2
+    echo "缺少本地命令: $1" >&2
     exit 1
   }
 }
@@ -59,7 +64,7 @@ mkdir -p "$OUT_DIR"
 download() {
   local url=$1
   local output=$2
-  echo "download $url"
+  echo "下载: $url"
   curl -fL --retry 3 --retry-delay 3 -o "$output" "$url"
 }
 
@@ -75,7 +80,7 @@ bundle_arch() {
       binary_name=k3s-arm64
       ;;
     *)
-      echo "unsupported K3S_ARCH: $arch" >&2
+      echo "不支持的 K3S_ARCH: $arch" >&2
       exit 1
       ;;
   esac
@@ -107,7 +112,7 @@ EOF
     tar -czf "$bundle" .
   )
 
-  echo "airgap bundle: $bundle"
+  echo "离线包: $bundle"
 }
 
 case "$K3S_ARCH" in
@@ -119,7 +124,7 @@ case "$K3S_ARCH" in
     bundle_arch "$K3S_ARCH"
     ;;
   *)
-    echo "unsupported K3S_ARCH: $K3S_ARCH" >&2
+    echo "不支持的 K3S_ARCH: $K3S_ARCH" >&2
     exit 1
     ;;
 esac

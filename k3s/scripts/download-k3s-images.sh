@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage:
+用法:
   download-k3s-images.sh <config.env>
 
 可选环境变量:
@@ -12,13 +12,18 @@ Usage:
   ARTIFACT_DIR=./k3s/artifacts
 
 说明:
-  下载 K3s 官方 airgap 镜像归档和镜像清单。
+  下载 K3s 官方离线镜像归档和镜像清单。
   输出的 k3s-airgap-images-<arch>.tar.zst 可放入:
     /var/lib/rancher/k3s/agent/images/
 USAGE
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -ne 1 ]]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -ne 1 ]]; then
   usage
   exit 1
 fi
@@ -41,13 +46,13 @@ K3S_ARCH=${ENV_K3S_ARCH:-${K3S_ARCH:-amd64}}
 ARTIFACT_DIR=${ENV_ARTIFACT_DIR:-${ARTIFACT_DIR:-./k3s/artifacts}}
 
 if [[ -z "$K3S_VERSION" ]]; then
-  echo "K3S_VERSION is required." >&2
+  echo "必须设置 K3S_VERSION。" >&2
   exit 1
 fi
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
-    echo "required command not found: $1" >&2
+    echo "缺少本地命令: $1" >&2
     exit 1
   }
 }
@@ -67,17 +72,17 @@ download() {
   local url=$1
   local output=$2
   if [[ -s "$output" ]]; then
-    echo "resume $url" >&2
+    echo "继续下载: $url" >&2
     curl --http1.1 -fL -C - --retry 5 --retry-delay 3 --retry-all-errors -o "$output" "$url" || {
       local rc=$?
       if [[ "$rc" -eq 22 || "$rc" -eq 33 ]]; then
-        echo "resume skipped, keeping existing file: $output" >&2
+        echo "无法继续下载，保留已有文件: $output" >&2
       else
         return "$rc"
       fi
     }
   else
-    echo "download $url" >&2
+    echo "下载: $url" >&2
     curl --http1.1 -fL --retry 5 --retry-delay 3 --retry-all-errors -o "$output" "$url"
   fi
 }
@@ -91,16 +96,16 @@ verify_image_tar() {
   basename_tar=$(basename "$image_tar")
   expected=$(awk -v f="$basename_tar" '$2 == f || $2 == "./" f {print $1; exit}' "$checksum_file")
   if [[ -z "$expected" ]]; then
-    echo "checksum entry not found for $basename_tar in $checksum_file" >&2
+    echo "校验文件中找不到条目: $basename_tar，校验文件: $checksum_file" >&2
     exit 1
   fi
 
   actual=$(sha256_file "$image_tar")
   if [[ "$actual" != "$expected" ]]; then
-    echo "checksum mismatch for $arch image tar: expected=$expected actual=$actual" >&2
+    echo "镜像归档校验失败: 架构=$arch，期望=$expected 实际=$actual" >&2
     exit 1
   fi
-  echo "checksum ok: $basename_tar"
+  echo "校验通过: $basename_tar"
 }
 
 download_arch() {
@@ -112,7 +117,7 @@ download_arch() {
       arch_label=$(printf '%s' "$arch" | tr '[:lower:]' '[:upper:]')
       ;;
     *)
-      echo "unsupported K3S_ARCH: $arch" >&2
+      echo "不支持的 K3S_ARCH: $arch" >&2
       exit 1
       ;;
   esac
@@ -150,7 +155,7 @@ case "$K3S_ARCH" in
     download_arch "$K3S_ARCH"
     ;;
   *)
-    echo "unsupported K3S_ARCH: $K3S_ARCH" >&2
+    echo "不支持的 K3S_ARCH: $K3S_ARCH" >&2
     exit 1
     ;;
 esac

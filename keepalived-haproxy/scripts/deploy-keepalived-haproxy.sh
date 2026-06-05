@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage:
+用法:
   deploy-keepalived-haproxy.sh <config.env>
 
 示例:
@@ -11,7 +11,12 @@ Usage:
 USAGE
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -ne 1 ]]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -ne 1 ]]; then
   usage
   exit 1
 fi
@@ -28,9 +33,36 @@ source "$INVENTORY"
 SSH_USER=${SSH_USER:-root}
 SSH_PORT=${SSH_PORT:-22}
 SSH_OPTS=${SSH_OPTS:-"-o StrictHostKeyChecking=accept-new"}
-VIP=${VIP:?}
+
+require_var() {
+  local name=$1
+  if [[ -z "${!name:-}" ]]; then
+    echo "缺少必填配置: $name" >&2
+    exit 1
+  fi
+}
+
+config_value() {
+  local name=$1
+  local fallback=${2:-}
+  local label=${3:-$name}
+  local value=${!name:-}
+  if [[ -z "$value" && -n "$fallback" ]]; then
+    value=${!fallback:-}
+  fi
+  if [[ -z "$value" ]]; then
+    echo "缺少必填配置: $label" >&2
+    exit 1
+  fi
+  printf '%s' "$value"
+}
+
+require_var VIP
+require_var NODE_INTERFACE
+
+VIP=${VIP}
 VIP_CIDR=${VIP_CIDR:-24}
-NODE_INTERFACE=${NODE_INTERFACE:?}
+NODE_INTERFACE=${NODE_INTERFACE}
 API_LB_PORT=${API_LB_PORT:-8443}
 BACKEND_PORT=${BACKEND_PORT:-${K3S_API_PORT:-6443}}
 VRRP_ROUTER_ID=${VRRP_ROUTER_ID:-51}
@@ -39,35 +71,35 @@ VRRP_PRIORITIES=${VRRP_PRIORITIES:-120,110,100}
 LB_AIRGAP=${LB_AIRGAP:-false}
 
 LB_NAMES=(
-  "${LB1_NAME:-${MASTER1_NAME:?}}"
-  "${LB2_NAME:-${MASTER2_NAME:?}}"
-  "${LB3_NAME:-${MASTER3_NAME:?}}"
+  "$(config_value LB1_NAME MASTER1_NAME "LB1_NAME 或 MASTER1_NAME")"
+  "$(config_value LB2_NAME MASTER2_NAME "LB2_NAME 或 MASTER2_NAME")"
+  "$(config_value LB3_NAME MASTER3_NAME "LB3_NAME 或 MASTER3_NAME")"
 )
 LB_HOSTS=(
-  "${LB1_HOST:-${MASTER1_HOST:?}}"
-  "${LB2_HOST:-${MASTER2_HOST:?}}"
-  "${LB3_HOST:-${MASTER3_HOST:?}}"
+  "$(config_value LB1_HOST MASTER1_HOST "LB1_HOST 或 MASTER1_HOST")"
+  "$(config_value LB2_HOST MASTER2_HOST "LB2_HOST 或 MASTER2_HOST")"
+  "$(config_value LB3_HOST MASTER3_HOST "LB3_HOST 或 MASTER3_HOST")"
 )
 BACKEND_NAMES=(
-  "${BACKEND1_NAME:-${MASTER1_NAME:?}}"
-  "${BACKEND2_NAME:-${MASTER2_NAME:?}}"
-  "${BACKEND3_NAME:-${MASTER3_NAME:?}}"
+  "$(config_value BACKEND1_NAME MASTER1_NAME "BACKEND1_NAME 或 MASTER1_NAME")"
+  "$(config_value BACKEND2_NAME MASTER2_NAME "BACKEND2_NAME 或 MASTER2_NAME")"
+  "$(config_value BACKEND3_NAME MASTER3_NAME "BACKEND3_NAME 或 MASTER3_NAME")"
 )
 BACKEND_HOSTS=(
-  "${BACKEND1_HOST:-${MASTER1_HOST:?}}"
-  "${BACKEND2_HOST:-${MASTER2_HOST:?}}"
-  "${BACKEND3_HOST:-${MASTER3_HOST:?}}"
+  "$(config_value BACKEND1_HOST MASTER1_HOST "BACKEND1_HOST 或 MASTER1_HOST")"
+  "$(config_value BACKEND2_HOST MASTER2_HOST "BACKEND2_HOST 或 MASTER2_HOST")"
+  "$(config_value BACKEND3_HOST MASTER3_HOST "BACKEND3_HOST 或 MASTER3_HOST")"
 )
 
 IFS=',' read -r -a PRIORITIES <<<"$VRRP_PRIORITIES"
 if [[ "${#PRIORITIES[@]}" -ne "${#LB_HOSTS[@]}" ]]; then
-  echo "VRRP_PRIORITIES count must match LB node count." >&2
+  echo "VRRP_PRIORITIES 数量必须与 LB 节点数量一致。" >&2
   exit 1
 fi
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
-    echo "required command not found: $1" >&2
+    echo "缺少本地命令: $1" >&2
     exit 1
   }
 }
@@ -96,7 +128,7 @@ backend_lines() {
 check_connectivity() {
   local host
   for host in "${LB_HOSTS[@]}"; do
-    echo "check ssh: $host"
+    echo "检查 SSH: $host"
     run_ssh "$host" "echo ok >/dev/null"
   done
 }
@@ -119,7 +151,7 @@ elif command -v dnf >/dev/null 2>&1; then
 elif command -v yum >/dev/null 2>&1; then
   yum install -y haproxy keepalived iproute iptables psmisc
 else
-  echo "unsupported package manager; install haproxy and keepalived manually" >&2
+  echo "不支持的包管理器，请手动安装 haproxy 和 keepalived" >&2
   exit 1
 fi
 REMOTE
@@ -223,7 +255,7 @@ REMOTE
 }
 
 wait_for_vip() {
-  echo "wait VIP: $VIP:$API_LB_PORT"
+  echo "等待 VIP: $VIP:$API_LB_PORT"
   for _ in {1..60}; do
     for host in "${LB_HOSTS[@]}"; do
       if run_ssh "$host" "timeout 2 bash -c '</dev/tcp/$VIP/$API_LB_PORT' >/dev/null 2>&1"; then
@@ -232,14 +264,14 @@ wait_for_vip() {
     done
     sleep 2
   done
-  echo "VIP is not reachable: $VIP:$API_LB_PORT" >&2
+  echo "VIP 无法访问: $VIP:$API_LB_PORT" >&2
   return 1
 }
 
 main() {
   check_connectivity
   for host in "${LB_HOSTS[@]}"; do
-    echo "prepare lb host: $host"
+    echo "准备 LB 主机: $host"
     install_os_packages "$host"
     configure_sysctl "$host"
     configure_haproxy "$host"
@@ -250,7 +282,7 @@ main() {
   configure_keepalived "${LB_HOSTS[2]}" BACKUP "${PRIORITIES[2]}"
 
   wait_for_vip
-  echo "done"
+  echo "完成"
 }
 
 main "$@"

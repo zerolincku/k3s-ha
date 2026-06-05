@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage:
+用法:
   download-k3s-assets.sh <config.env>
 
 可选环境变量:
@@ -12,12 +12,17 @@ Usage:
   ARTIFACT_DIR=./k3s/artifacts
 
 说明:
-  下载 K3s binary、install.sh 和 checksum 文件。
+  下载 K3s 可执行文件、install.sh 和校验文件。
   K3s 系统镜像归档请使用 download-k3s-images.sh 下载。
 USAGE
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -ne 1 ]]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -ne 1 ]]; then
   usage
   exit 1
 fi
@@ -40,13 +45,13 @@ K3S_ARCH=${ENV_K3S_ARCH:-${K3S_ARCH:-amd64}}
 ARTIFACT_DIR=${ENV_ARTIFACT_DIR:-${ARTIFACT_DIR:-./k3s/artifacts}}
 
 if [[ -z "$K3S_VERSION" ]]; then
-  echo "K3S_VERSION is required." >&2
+  echo "必须设置 K3S_VERSION。" >&2
   exit 1
 fi
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
-    echo "required command not found: $1" >&2
+    echo "缺少本地命令: $1" >&2
     exit 1
   }
 }
@@ -66,17 +71,17 @@ download() {
   local url=$1
   local output=$2
   if [[ -s "$output" ]]; then
-    echo "resume $url" >&2
+    echo "继续下载: $url" >&2
     curl --http1.1 -fL -C - --retry 5 --retry-delay 3 --retry-all-errors -o "$output" "$url" || {
       local rc=$?
       if [[ "$rc" -eq 22 || "$rc" -eq 33 ]]; then
-        echo "resume skipped, keeping existing file: $output" >&2
+        echo "无法继续下载，保留已有文件: $output" >&2
       else
         return "$rc"
       fi
     }
   else
-    echo "download $url" >&2
+    echo "下载: $url" >&2
     curl --http1.1 -fL --retry 5 --retry-delay 3 --retry-all-errors -o "$output" "$url"
   fi
 }
@@ -89,16 +94,16 @@ verify_asset() {
 
   expected=$(awk -v f="$release_name" '$2 == f || $2 == "./" f {print $1; exit}' "$checksum_file")
   if [[ -z "$expected" ]]; then
-    echo "checksum entry not found for $release_name in $checksum_file" >&2
+    echo "校验文件中找不到条目: $release_name，校验文件: $checksum_file" >&2
     exit 1
   fi
 
   actual=$(sha256_file "$file")
   if [[ "$actual" != "$expected" ]]; then
-    echo "checksum mismatch for $release_name: expected=$expected actual=$actual" >&2
+    echo "校验失败: $release_name，期望=$expected 实际=$actual" >&2
     exit 1
   fi
-  echo "checksum ok: $release_name"
+  echo "校验通过: $release_name"
 }
 
 download_install_script() {
@@ -122,7 +127,7 @@ download_arch() {
       release_binary=k3s-arm64
       ;;
     *)
-      echo "unsupported K3S_ARCH: $arch" >&2
+      echo "不支持的 K3S_ARCH: $arch" >&2
       exit 1
       ;;
   esac
@@ -144,11 +149,11 @@ download_arch() {
 
   cat <<EOF
 
-K3s binary:
+K3s 可执行文件:
   $binary
 install.sh:
   $install_script
-checksum:
+校验文件:
   $checksum_file
 部署配置示例:
   K3S_BINARY_${arch_label}=$binary
@@ -165,7 +170,7 @@ case "$K3S_ARCH" in
     download_arch "$K3S_ARCH"
     ;;
   *)
-    echo "unsupported K3S_ARCH: $K3S_ARCH" >&2
+    echo "不支持的 K3S_ARCH: $K3S_ARCH" >&2
     exit 1
     ;;
 esac

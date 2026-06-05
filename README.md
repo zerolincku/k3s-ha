@@ -2,7 +2,7 @@
 
 面向生产环境的高可用部署手册与脚本仓库。
 
-当前已完成第一阶段：3 台 master 节点的 K3s 高可用集群方案，包含在线一键部署脚本和离线部署方案。后续 Redis、RabbitMQ、MinIO 等中间件高可用部署方案按同一目录约定扩展。
+当前已完成：3 台 master 节点的 K3s 高可用集群方案，以及 Redis Sentinel 高可用部署方案。后续 RabbitMQ、MinIO、MySQL 等中间件高可用部署方案按同一目录约定扩展。
 
 已考虑：
 
@@ -34,6 +34,12 @@
 │   ├── config.example.env
 │   ├── docs/
 │   └── scripts/
+├── redis/
+│   ├── 说明.md
+│   ├── config.example.env
+│   ├── docs/
+│   ├── manifests/
+│   └── scripts/
 └── <resource>/      # 后续 redis、mysql、rabbitmq、minio 等资源目录
 ```
 
@@ -51,9 +57,10 @@
 └── scripts/
 ```
 
-## 第一阶段交付
+## 当前交付
 
 - Keepalived + HAProxy 高可用入口：[keepalived-haproxy/说明.md](keepalived-haproxy/说明.md)
+- Redis Sentinel 高可用部署：[redis/说明.md](redis/说明.md)
 - K3s 3 master 高可用架构：[k3s/docs/01-架构说明.md](k3s/docs/01-架构说明.md)
 - 在线一键部署：[k3s/docs/02-在线部署.md](k3s/docs/02-在线部署.md)
 - 离线部署方案：[k3s/docs/03-离线部署.md](k3s/docs/03-离线部署.md)

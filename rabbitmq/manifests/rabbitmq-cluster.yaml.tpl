@@ -11,6 +11,7 @@ metadata:
 spec:
   replicas: __RABBITMQ_REPLICAS__
   image: __RABBITMQ_IMAGE__
+  autoEnableAllFeatureFlags: __RABBITMQ_AUTO_ENABLE_ALL_FEATURE_FLAGS__
   service:
     type: ClusterIP
   persistence:

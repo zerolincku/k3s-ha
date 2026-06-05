@@ -50,7 +50,7 @@ source "$CONFIG"
 
 KUBECONFIG=${ENV_KUBECONFIG:-${KUBECONFIG:-}}
 RABBITMQ_IMAGE=${ENV_RABBITMQ_IMAGE:-${RABBITMQ_IMAGE:-rabbitmq:4.3.1-management}}
-RABBITMQ_OPERATOR_IMAGE=${ENV_RABBITMQ_OPERATOR_IMAGE:-${RABBITMQ_OPERATOR_IMAGE:-rabbitmqoperator/cluster-operator:2.21.0}}
+RABBITMQ_OPERATOR_IMAGE=${ENV_RABBITMQ_OPERATOR_IMAGE:-${RABBITMQ_OPERATOR_IMAGE:-ghcr.io/rabbitmq/cluster-operator:2.21.0}}
 RABBITMQ_IMAGE_TAR=${ENV_RABBITMQ_IMAGE_TAR:-${RABBITMQ_IMAGE_TAR:-}}
 RABBITMQ_OPERATOR_IMAGE_TAR=${ENV_RABBITMQ_OPERATOR_IMAGE_TAR:-${RABBITMQ_OPERATOR_IMAGE_TAR:-}}
 RABBITMQ_NODE_SSH_HOSTS=${ENV_RABBITMQ_NODE_SSH_HOSTS:-${RABBITMQ_NODE_SSH_HOSTS:-}}
@@ -130,15 +130,17 @@ fi
 
 remote_rabbitmq_tar="$RABBITMQ_K3S_IMAGES_DIR/$(basename "$RABBITMQ_IMAGE_TAR")"
 remote_operator_tar="$RABBITMQ_K3S_IMAGES_DIR/$(basename "$RABBITMQ_OPERATOR_IMAGE_TAR")"
+remote_rabbitmq_tmp="$RABBITMQ_K3S_IMAGES_DIR/.uploading-$(basename "$RABBITMQ_IMAGE_TAR").tmp"
+remote_operator_tmp="$RABBITMQ_K3S_IMAGES_DIR/.uploading-$(basename "$RABBITMQ_OPERATOR_IMAGE_TAR").tmp"
 
 for i in "${!node_hosts[@]}"; do
   host=${node_hosts[$i]}
   node_name=${node_names[$i]:-}
   echo "上传 RabbitMQ 离线镜像到节点: $host"
   run_ssh "$host" "mkdir -p '$RABBITMQ_K3S_IMAGES_DIR'"
-  copy_to "$RABBITMQ_IMAGE_TAR" "$host" "$remote_rabbitmq_tar"
-  copy_to "$RABBITMQ_OPERATOR_IMAGE_TAR" "$host" "$remote_operator_tar"
-  run_ssh "$host" "chmod 0600 '$remote_rabbitmq_tar' '$remote_operator_tar'"
+  copy_to "$RABBITMQ_IMAGE_TAR" "$host" "$remote_rabbitmq_tmp"
+  copy_to "$RABBITMQ_OPERATOR_IMAGE_TAR" "$host" "$remote_operator_tmp"
+  run_ssh "$host" "chmod 0600 '$remote_rabbitmq_tmp' '$remote_operator_tmp' && mv -f '$remote_rabbitmq_tmp' '$remote_rabbitmq_tar' && mv -f '$remote_operator_tmp' '$remote_operator_tar'"
 
   if [[ "$RABBITMQ_RESET_K3S_IMAGE_CACHE" == "true" ]]; then
     echo "重置 K3s 镜像导入缓存: $host"

@@ -118,14 +118,15 @@ if [[ -n "$REDIS_NODE_NAMES" && "${#node_names[@]}" -ne "${#node_hosts[@]}" ]]; 
 fi
 
 remote_tar="$REDIS_K3S_IMAGES_DIR/$(basename "$REDIS_IMAGE_TAR")"
+remote_tmp="$REDIS_K3S_IMAGES_DIR/.uploading-$(basename "$REDIS_IMAGE_TAR").tmp"
 
 for i in "${!node_hosts[@]}"; do
   host=${node_hosts[$i]}
   node_name=${node_names[$i]:-}
   echo "上传 Redis 镜像到节点: $host"
   run_ssh "$host" "mkdir -p '$REDIS_K3S_IMAGES_DIR'"
-  copy_to "$REDIS_IMAGE_TAR" "$host" "$remote_tar"
-  run_ssh "$host" "chmod 0600 '$remote_tar'"
+  copy_to "$REDIS_IMAGE_TAR" "$host" "$remote_tmp"
+  run_ssh "$host" "chmod 0600 '$remote_tmp' && mv -f '$remote_tmp' '$remote_tar'"
 
   if [[ "$REDIS_RESET_K3S_IMAGE_CACHE" == "true" ]]; then
     echo "重置 K3s 镜像导入缓存: $host"

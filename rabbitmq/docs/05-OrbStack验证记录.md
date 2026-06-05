@@ -79,6 +79,8 @@ RABBITMQ_OPERATOR_IMAGE_PULL_POLICY=Never \
 bash rabbitmq/scripts/deploy-rabbitmq.sh rabbitmq/config.example.env
 ```
 
+这里使用 `Never` 是为了严格验证镜像已经通过 K3s images 目录导入。常规生产配置默认使用 `IfNotPresent`。
+
 验证结果：
 
 ```text
@@ -120,7 +122,11 @@ PV nodeAffinity 分别绑定到 Pod 所在节点，删除 Pod 后会回到原节
 创建测试队列：
 
 ```bash
-rabbitmqadmin declare queue --name codex_quorum_test --type quorum --durable true --non-interactive
+user=$(kubectl -n rabbitmq get secret rabbitmq-default-user -o jsonpath='{.data.username}' | base64 -d)
+pass=$(kubectl -n rabbitmq get secret rabbitmq-default-user -o jsonpath='{.data.password}' | base64 -d)
+kubectl -n rabbitmq exec rabbitmq-server-0 -- \
+  rabbitmqadmin --username "$user" --password "$pass" \
+  declare queue --name codex_quorum_test --type quorum --durable true --non-interactive
 ```
 
 队列类型：

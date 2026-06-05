@@ -10,6 +10,18 @@
 - cgroup v1 与 cgroup v2 主机预检。
 - 在线与离线两种部署路径。
 
+## K3s 离线镜像导入约定
+
+所有资源目录如果需要把镜像归档放入 K3s 自动导入目录：
+
+```text
+/var/lib/rancher/k3s/agent/images/
+```
+
+脚本必须先上传或复制为 `.uploading-*.tmp`，确认传输完成后再 `mv` 为最终 `.tar` 或 `.tar.zst` 文件名。不要把正在传输的半成品直接写成最终文件名，否则 K3s 启动扫描 images 目录时可能读到未完成归档，出现 `short read` 或 `unexpected EOF`。
+
+K3s 已经运行时，归档放入 images 目录通常不会立即导入；需要重启对应节点的 `k3s` 服务才会触发导入。生产环境应逐台滚动重启。
+
 ## 目录结构
 
 ```text

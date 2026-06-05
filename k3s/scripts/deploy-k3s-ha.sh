@@ -397,7 +397,9 @@ if [[ -f /opt/k3s-airgap/metadata.env ]]; then
   source /opt/k3s-airgap/metadata.env
 fi
 IMAGE_TAR=${IMAGE_TAR:-k3s-airgap-images-${K3S_ARCH}.tar.zst}
-cp "/opt/k3s-airgap/${IMAGE_TAR}" "/var/lib/rancher/k3s/agent/images/${IMAGE_TAR}"
+tmp_image="/var/lib/rancher/k3s/agent/images/.uploading-${IMAGE_TAR}.tmp"
+install -m 0600 "/opt/k3s-airgap/${IMAGE_TAR}" "$tmp_image"
+mv -f "$tmp_image" "/var/lib/rancher/k3s/agent/images/${IMAGE_TAR}"
 touch /var/lib/rancher/k3s/agent/images/.cache.json
 REMOTE
 }
@@ -466,7 +468,10 @@ install_image_tar() {
 set -euo pipefail
 test -f "$REMOTE_IMAGE_TAR"
 mkdir -p /var/lib/rancher/k3s/agent/images
-install -m 0600 "$REMOTE_IMAGE_TAR" "/var/lib/rancher/k3s/agent/images/$(basename "$REMOTE_IMAGE_TAR")"
+image_name=$(basename "$REMOTE_IMAGE_TAR")
+tmp_image="/var/lib/rancher/k3s/agent/images/.uploading-${image_name}.tmp"
+install -m 0600 "$REMOTE_IMAGE_TAR" "$tmp_image"
+mv -f "$tmp_image" "/var/lib/rancher/k3s/agent/images/${image_name}"
 touch /var/lib/rancher/k3s/agent/images/.cache.json
 if [[ "$CLEANUP_REMOTE" == "true" ]]; then
   rm -f "$REMOTE_IMAGE_TAR"

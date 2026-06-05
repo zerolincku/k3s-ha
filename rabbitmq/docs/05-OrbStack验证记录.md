@@ -66,7 +66,7 @@ docker.io/library/rabbitmq:4.3.1-management
 ghcr.io/rabbitmq/cluster-operator:2.21.0
 ```
 
-验证中发现如果直接 `scp` 到 `/var/lib/rancher/k3s/agent/images/`，K3s 可能在 tar 传输未完成时提前导入，日志出现 `short read` 或 `unexpected EOF`。脚本已修复为先上传 `.tmp`，传完后再 `mv` 为最终 tar。
+验证中发现如果直接 `scp` 到 `/var/lib/rancher/k3s/agent/images/` 的最终文件名，K3s 启动或扫描 images 目录时可能读到未传输完成的 tar，日志出现 `short read` 或 `unexpected EOF`。脚本已修复为先上传 `.uploading-*.tmp`，传完后再 `mv` 为最终 tar。
 
 ## 离线部署验证
 

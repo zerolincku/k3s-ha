@@ -58,6 +58,7 @@ ENV_ARTIFACT_DIR=${ARTIFACT_DIR:-}
 ENV_K3S_PRIVATE_REGISTRY_FILE=${K3S_PRIVATE_REGISTRY_FILE:-}
 ENV_K3S_SYSTEM_DEFAULT_REGISTRY=${K3S_SYSTEM_DEFAULT_REGISTRY:-}
 ENV_K3S_PAUSE_IMAGE=${K3S_PAUSE_IMAGE:-}
+ENV_IGNORE_OS_PREREQ_MISSING=${IGNORE_OS_PREREQ_MISSING:-}
 
 # shellcheck disable=SC1090
 source "$INVENTORY"
@@ -95,6 +96,7 @@ ARTIFACT_DIR=${ENV_ARTIFACT_DIR:-${ARTIFACT_DIR:-./k3s/artifacts}}
 K3S_PRIVATE_REGISTRY_FILE=${ENV_K3S_PRIVATE_REGISTRY_FILE:-${K3S_PRIVATE_REGISTRY_FILE:-}}
 K3S_SYSTEM_DEFAULT_REGISTRY=${ENV_K3S_SYSTEM_DEFAULT_REGISTRY:-${K3S_SYSTEM_DEFAULT_REGISTRY:-}}
 K3S_PAUSE_IMAGE=${ENV_K3S_PAUSE_IMAGE:-${K3S_PAUSE_IMAGE:-}}
+IGNORE_OS_PREREQ_MISSING=${ENV_IGNORE_OS_PREREQ_MISSING:-${IGNORE_OS_PREREQ_MISSING:-false}}
 
 MASTER_NAMES=("${MASTER1_NAME:?}" "${MASTER2_NAME:?}" "${MASTER3_NAME:?}")
 MASTER_HOSTS=("${MASTER1_HOST:?}" "${MASTER2_HOST:?}" "${MASTER3_HOST:?}")
@@ -317,7 +319,7 @@ REMOTE
 
 check_os_prerequisites() {
   local host=$1
-  run_ssh "$host" "bash -s" <<'REMOTE'
+  run_ssh "$host" "IGNORE_OS_PREREQ_MISSING='$IGNORE_OS_PREREQ_MISSING' bash -s" <<'REMOTE'
 set -euo pipefail
 missing=""
 for cmd in iptables iptables-save ip6tables ip6tables-save conntrack socat; do
@@ -326,8 +328,14 @@ for cmd in iptables iptables-save ip6tables ip6tables-save conntrack socat; do
   fi
 done
 if [[ -n "$missing" ]]; then
-  echo "warning: missing OS commands on $(hostname): ${missing}" >&2
-  echo "warning: install matching OS packages offline before production deployment." >&2
+  if [[ "$IGNORE_OS_PREREQ_MISSING" == "true" ]]; then
+    echo "warning: missing OS commands on $(hostname): ${missing}" >&2
+    echo "warning: IGNORE_OS_PREREQ_MISSING=true, continuing with known risk." >&2
+  else
+    echo "missing OS commands on $(hostname): ${missing}" >&2
+    echo "install matching OS packages offline before deployment, or set IGNORE_OS_PREREQ_MISSING=true to continue explicitly." >&2
+    exit 1
+  fi
 fi
 REMOTE
 }

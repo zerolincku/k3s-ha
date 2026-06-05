@@ -164,3 +164,67 @@ docker.io/rancher/mirrored-library-busybox:1.37.0
 docker.io/rancher/mirrored-metrics-server:v0.8.1
 docker.io/rancher/mirrored-pause:3.6
 ```
+
+## Ubuntu Jammy 重新验证
+
+验证日期：2026-06-05
+
+用户重建了 3 台 OrbStack VM：
+
+| 节点 | 发行版 | 架构 | cgroup | 节点 IP | SSH 地址 |
+| --- | --- | --- | --- | --- | --- |
+| u-1 | Ubuntu 22.04.5 LTS | arm64 | v2 | 192.168.139.219 | u-1@orb |
+| u-2 | Ubuntu 22.04.5 LTS | arm64 | v2 | 192.168.139.229 | u-2@orb |
+| u-3 | Ubuntu 22.04.5 LTS | arm64 | v2 | 192.168.139.138 | u-3@orb |
+
+检查结果：
+
+```text
+stat -fc %T /sys/fs/cgroup
+cgroup2fs
+
+mount | grep cgroup
+none on /sys/fs/cgroup type cgroup2
+```
+
+结论：这三台不是 cgroup v1，而是 cgroup v2。
+
+按完全离线流程重新下载 arm64 资源、手动传输到 `/tmp/k3s-offline/`，并使用：
+
+```bash
+K3S_AIRGAP=true
+K3S_ASSETS_PRELOADED=true
+K3S_BINARY_ARM64=/tmp/k3s-offline/k3s-arm64
+K3S_INSTALL_SCRIPT=/tmp/k3s-offline/install.sh
+K3S_IMAGE_TAR_ARM64=/tmp/k3s-offline/k3s-airgap-images-arm64.tar.zst
+```
+
+最终结果：
+
+```text
+NAME   STATUS   ROLES                VERSION        ARCH    CGROUP-VERSION
+u-1    Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+u-2    Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+u-3    Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+```
+
+系统组件：
+
+```text
+coredns                  1/1   Running
+local-path-provisioner   1/1   Running
+metrics-server           1/1   Running
+```
+
+这个 jammy 镜像缺少以下命令：
+
+```text
+iptables
+iptables-save
+ip6tables
+ip6tables-save
+conntrack
+socat
+```
+
+K3s 核心验证仍然通过，但生产环境不能省略这些 OS 依赖。完全离线方案需要同时准备 K3s 本体、K3s 系统镜像和 OS 依赖包。

@@ -315,6 +315,23 @@ swapoff -a || true
 REMOTE
 }
 
+check_os_prerequisites() {
+  local host=$1
+  run_ssh "$host" "bash -s" <<'REMOTE'
+set -euo pipefail
+missing=""
+for cmd in iptables iptables-save ip6tables ip6tables-save conntrack socat; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    missing="${missing}${cmd} "
+  fi
+done
+if [[ -n "$missing" ]]; then
+  echo "warning: missing OS commands on $(hostname): ${missing}" >&2
+  echo "warning: install matching OS packages offline before production deployment." >&2
+fi
+REMOTE
+}
+
 install_private_registry_config() {
   local host=$1
   if [[ -z "$K3S_PRIVATE_REGISTRY_FILE" ]]; then
@@ -562,6 +579,7 @@ main() {
     echo "prepare host: $host"
     install_os_packages "$host"
     configure_sysctl "$host"
+    check_os_prerequisites "$host"
     install_private_registry_config "$host"
     if [[ "$K3S_AIRGAP" == "true" ]]; then
       if [[ -n "$(airgap_bundle_for_arch "${DETECTED_ARCHES[$i]}")" ]]; then

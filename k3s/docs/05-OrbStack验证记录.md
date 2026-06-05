@@ -78,3 +78,89 @@ rancher/local-path-provisioner:v0.0.36
 - 在线部署不能假设 Docker Hub 稳定可用。
 - 生产环境建议优先使用 K3s airgap 包，或准备完整同步 K3s 系统镜像的内网 registry。
 - VIP、HAProxy、Ingress、NodePort 与 K3s 集群部署可以解耦，K3s 可先独立部署并验证控制面健康。
+
+## 完全离线重建验证
+
+验证日期：2026-06-05
+
+第二轮验证先在三台节点执行官方卸载脚本，并清理：
+
+```text
+/etc/rancher/k3s
+/var/lib/rancher/k3s
+/opt/k3s-airgap
+```
+
+然后在本机通过代理下载 `v1.35.5+k3s1` 的 arm64 离线资源：
+
+```bash
+K3S_ARCH=arm64 ARTIFACT_DIR=/tmp/k3s-ha-offline-test \
+bash k3s/scripts/download-k3s-assets.sh k3s/config.example.env
+
+K3S_ARCH=arm64 ARTIFACT_DIR=/tmp/k3s-ha-offline-test \
+bash k3s/scripts/download-k3s-images.sh k3s/config.example.env
+```
+
+手动传输到每台节点：
+
+```text
+/tmp/k3s-offline/k3s-arm64
+/tmp/k3s-offline/install.sh
+/tmp/k3s-offline/k3s-airgap-images-arm64.tar.zst
+```
+
+部署时使用远端预置资源：
+
+```bash
+K3S_AIRGAP=true
+K3S_ASSETS_PRELOADED=true
+K3S_BINARY_ARM64=/tmp/k3s-offline/k3s-arm64
+K3S_INSTALL_SCRIPT=/tmp/k3s-offline/install.sh
+K3S_IMAGE_TAR_ARM64=/tmp/k3s-offline/k3s-airgap-images-arm64.tar.zst
+```
+
+部署日志确认没有在线下载 K3s：
+
+```text
+Skipping k3s download and verify
+```
+
+最终结果：
+
+```text
+NAME       STATUS   ROLES                VERSION        ARCH    CGROUP-VERSION
+ubuntu-1   Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+ubuntu-2   Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+ubuntu-3   Ready    control-plane,etcd   v1.35.5+k3s1   arm64   v2
+```
+
+API 健康检查：
+
+```text
+kubectl get --raw=/readyz
+ok
+```
+
+系统组件全部运行：
+
+```text
+coredns                  1/1   Running
+local-path-provisioner   1/1   Running
+metrics-server           1/1   Running
+```
+
+每台节点的镜像归档位置：
+
+```text
+/var/lib/rancher/k3s/agent/images/k3s-airgap-images-arm64.tar.zst
+```
+
+每台节点均可看到 airgap 归档导入后的系统镜像：
+
+```text
+docker.io/rancher/local-path-provisioner:v0.0.36
+docker.io/rancher/mirrored-coredns-coredns:1.14.3
+docker.io/rancher/mirrored-library-busybox:1.37.0
+docker.io/rancher/mirrored-metrics-server:v0.8.1
+docker.io/rancher/mirrored-pause:3.6
+```

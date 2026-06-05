@@ -67,11 +67,19 @@ download() {
   local url=$1
   local output=$2
   if [[ -s "$output" ]]; then
-    echo "exists $output"
-    return
+    echo "resume $url" >&2
+    curl --http1.1 -fL -C - --retry 5 --retry-delay 3 --retry-all-errors -o "$output" "$url" || {
+      local rc=$?
+      if [[ "$rc" -eq 22 || "$rc" -eq 33 ]]; then
+        echo "resume skipped, keeping existing file: $output" >&2
+      else
+        return "$rc"
+      fi
+    }
+  else
+    echo "download $url" >&2
+    curl --http1.1 -fL --retry 5 --retry-delay 3 --retry-all-errors -o "$output" "$url"
   fi
-  echo "download $url"
-  curl -fL --retry 3 --retry-delay 3 -o "$output" "$url"
 }
 
 verify_image_tar() {

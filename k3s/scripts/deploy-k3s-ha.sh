@@ -49,6 +49,7 @@ ENV_K3S_BINARY=${K3S_BINARY:-}
 ENV_K3S_BINARY_AMD64=${K3S_BINARY_AMD64:-}
 ENV_K3S_BINARY_ARM64=${K3S_BINARY_ARM64:-}
 ENV_K3S_INSTALL_SCRIPT=${K3S_INSTALL_SCRIPT:-}
+ENV_K3S_ASSETS_PRELOADED=${K3S_ASSETS_PRELOADED:-}
 ENV_K3S_IMAGE_TAR=${K3S_IMAGE_TAR:-}
 ENV_K3S_IMAGE_TAR_AMD64=${K3S_IMAGE_TAR_AMD64:-}
 ENV_K3S_IMAGE_TAR_ARM64=${K3S_IMAGE_TAR_ARM64:-}
@@ -82,6 +83,7 @@ K3S_BINARY=${ENV_K3S_BINARY:-${K3S_BINARY:-}}
 K3S_BINARY_AMD64=${ENV_K3S_BINARY_AMD64:-${K3S_BINARY_AMD64:-}}
 K3S_BINARY_ARM64=${ENV_K3S_BINARY_ARM64:-${K3S_BINARY_ARM64:-}}
 K3S_INSTALL_SCRIPT=${ENV_K3S_INSTALL_SCRIPT:-${K3S_INSTALL_SCRIPT:-}}
+K3S_ASSETS_PRELOADED=${ENV_K3S_ASSETS_PRELOADED:-${K3S_ASSETS_PRELOADED:-false}}
 K3S_IMAGE_TAR=${ENV_K3S_IMAGE_TAR:-${K3S_IMAGE_TAR:-}}
 K3S_IMAGE_TAR_AMD64=${ENV_K3S_IMAGE_TAR_AMD64:-${K3S_IMAGE_TAR_AMD64:-}}
 K3S_IMAGE_TAR_ARM64=${ENV_K3S_IMAGE_TAR_ARM64:-${K3S_IMAGE_TAR_ARM64:-}}
@@ -364,25 +366,36 @@ install_k3s_assets() {
   local binary
   binary=$(k3s_binary_for_arch "$arch")
 
-  if [[ -z "$binary" || ! -f "$binary" ]]; then
-    echo "K3s binary for $arch not found: $binary" >&2
-    exit 1
-  fi
-  if [[ -z "$K3S_INSTALL_SCRIPT" || ! -f "$K3S_INSTALL_SCRIPT" ]]; then
-    echo "K3S_INSTALL_SCRIPT not found: $K3S_INSTALL_SCRIPT" >&2
-    exit 1
+  local remote_binary remote_install cleanup_remote=false
+  if [[ "$K3S_ASSETS_PRELOADED" == "true" ]]; then
+    remote_binary=$binary
+    remote_install=$K3S_INSTALL_SCRIPT
+  else
+    if [[ -z "$binary" || ! -f "$binary" ]]; then
+      echo "K3s binary for $arch not found: $binary" >&2
+      exit 1
+    fi
+    if [[ -z "$K3S_INSTALL_SCRIPT" || ! -f "$K3S_INSTALL_SCRIPT" ]]; then
+      echo "K3S_INSTALL_SCRIPT not found: $K3S_INSTALL_SCRIPT" >&2
+      exit 1
+    fi
+    remote_binary="/tmp/$(basename "$binary")"
+    remote_install="/tmp/k3s-install.sh"
+    copy_to "$binary" "$host" "$remote_binary"
+    copy_to "$K3S_INSTALL_SCRIPT" "$host" "$remote_install"
+    cleanup_remote=true
   fi
 
-  local remote_binary="/tmp/$(basename "$binary")"
-  local remote_install="/tmp/k3s-install.sh"
-  copy_to "$binary" "$host" "$remote_binary"
-  copy_to "$K3S_INSTALL_SCRIPT" "$host" "$remote_install"
-  run_ssh "$host" "REMOTE_BINARY='$remote_binary' REMOTE_INSTALL='$remote_install' bash -s" <<'REMOTE'
+  run_ssh "$host" "REMOTE_BINARY='$remote_binary' REMOTE_INSTALL='$remote_install' CLEANUP_REMOTE='$cleanup_remote' bash -s" <<'REMOTE'
 set -euo pipefail
+test -f "$REMOTE_BINARY"
+test -f "$REMOTE_INSTALL"
 mkdir -p /opt/k3s-airgap /usr/local/bin
 install -m 0755 "$REMOTE_BINARY" /usr/local/bin/k3s
 install -m 0755 "$REMOTE_INSTALL" /opt/k3s-airgap/install.sh
-rm -f "$REMOTE_BINARY" "$REMOTE_INSTALL"
+if [[ "$CLEANUP_REMOTE" == "true" ]]; then
+  rm -f "$REMOTE_BINARY" "$REMOTE_INSTALL"
+fi
 REMOTE
 }
 
@@ -394,19 +407,28 @@ install_image_tar() {
   if [[ -z "$image_tar" ]]; then
     return
   fi
-  if [[ ! -f "$image_tar" ]]; then
-    echo "K3s image tar for $arch not found: $image_tar" >&2
-    exit 1
+  local remote_image_tar cleanup_remote=false
+  if [[ "$K3S_ASSETS_PRELOADED" == "true" ]]; then
+    remote_image_tar=$image_tar
+  else
+    if [[ ! -f "$image_tar" ]]; then
+      echo "K3s image tar for $arch not found: $image_tar" >&2
+      exit 1
+    fi
+    remote_image_tar="/tmp/$(basename "$image_tar")"
+    copy_to "$image_tar" "$host" "$remote_image_tar"
+    cleanup_remote=true
   fi
 
-  local remote_image_tar="/tmp/$(basename "$image_tar")"
-  copy_to "$image_tar" "$host" "$remote_image_tar"
-  run_ssh "$host" "REMOTE_IMAGE_TAR='$remote_image_tar' bash -s" <<'REMOTE'
+  run_ssh "$host" "REMOTE_IMAGE_TAR='$remote_image_tar' CLEANUP_REMOTE='$cleanup_remote' bash -s" <<'REMOTE'
 set -euo pipefail
+test -f "$REMOTE_IMAGE_TAR"
 mkdir -p /var/lib/rancher/k3s/agent/images
 install -m 0600 "$REMOTE_IMAGE_TAR" "/var/lib/rancher/k3s/agent/images/$(basename "$REMOTE_IMAGE_TAR")"
 touch /var/lib/rancher/k3s/agent/images/.cache.json
-rm -f "$REMOTE_IMAGE_TAR"
+if [[ "$CLEANUP_REMOTE" == "true" ]]; then
+  rm -f "$REMOTE_IMAGE_TAR"
+fi
 REMOTE
 }
 
